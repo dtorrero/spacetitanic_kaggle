@@ -69,6 +69,9 @@ def enhanced_feature_engineering(df):
         df_processed['TotalSpending'] / df_processed['TotalSpending'].replace(0, 1) * 3
     )
     
+    # New feature: CryoSleepInCabin
+    df_processed['CryoSleepInCabin'] = df_processed['IsCryoSleep'].astype(int)
+    
     # Create destination features
     df_processed['IsHomePlanet'] = (df_processed['HomePlanet'] == df_processed['Destination']).astype(int)
     
@@ -82,6 +85,20 @@ def enhanced_feature_engineering(df):
     df_processed['VIP_CryoSleep'] = df_processed['IsVIP'] * df_processed['IsCryoSleep']
     df_processed['VIP_Spending'] = df_processed['IsVIP'] * df_processed['TotalSpending']
     df_processed['CryoSleep_Spending'] = df_processed['IsCryoSleep'] * df_processed['TotalSpending']
+    
+    # Apply weights to feature groups
+    # Location features (more weight)
+    for col in ['DeckLevel', 'CabinNum', 'CabinSide', 'CabinDeck']:
+        if col in df_processed:
+            df_processed[col] = df_processed[col] * 2.0
+    # Economic features (less weight)
+    for col in ['TotalSpending', 'SpendingPerPerson', 'HasSpent', 'RoomServiceRatio', 'FoodCourtRatio', 'ShoppingMallRatio', 'SpaRatio', 'VRDeckRatio', 'VIP_Spending', 'CryoSleep_Spending', 'LuxuryScore']:
+        if col in df_processed:
+            df_processed[col] = df_processed[col] * 0.5
+    # Age features (less weight)
+    for col in ['Age', 'IsChild', 'IsElderly']:
+        if col in df_processed:
+            df_processed[col] = df_processed[col] * 0.5
     
     # Drop original columns
     columns_to_drop = ['PassengerId', 'Name', 'Cabin', 'Group']
@@ -191,12 +208,11 @@ models = {
 
 # Perform random search and cross-validation
 best_models = {}
+crossval_scores = {}
 print("\nModel Performance with Random Search:")
 for name, model_info in models.items():
     print(f"\nTraining {name}...")
-    
     if name in ['XGBoost', 'LightGBM']:
-        # For models that support early stopping
         random_search = RandomizedSearchCV(
             estimator=model_info['model'],
             param_distributions=model_info['params'],
@@ -207,13 +223,11 @@ for name, model_info in models.items():
             random_state=42,
             verbose=2
         )
-        # Add validation set for early stopping
         random_search.fit(
             X_train, y_train,
             eval_set=[(X_val, y_val)]
         )
     else:
-        # For models that don't support early stopping
         random_search = RandomizedSearchCV(
             estimator=model_info['model'],
             param_distributions=model_info['params'],
@@ -225,8 +239,8 @@ for name, model_info in models.items():
             verbose=2
         )
         random_search.fit(X_train, y_train)
-    
     best_models[name] = random_search.best_estimator_
+    crossval_scores[name] = random_search.best_score_
     print(f"\n{name}:")
     print(f"Best parameters: {random_search.best_params_}")
     print(f"Best cross-validation score: {random_search.best_score_:.3f}")
@@ -312,3 +326,10 @@ results_df['Transported'] = results_df['Transported'].map({1: 'True', 0: 'False'
 # Save results to CSV
 results_df.to_csv('results.csv', index=False)
 print("\nResults have been saved to results.csv")
+
+# At the end, after the summary section, print cross-validation accuracy for each model
+print("\n" + "="*50)
+print("CROSS-VALIDATION ACCURACY SCORES")
+print("="*50)
+for name, score in crossval_scores.items():
+    print(f"{name}: {score:.4f}")
